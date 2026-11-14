@@ -30,6 +30,33 @@ function todayLabelJst() {
   }).format(new Date());
 }
 
+// 未完了タスク(今日以前) に加えて、今日完了したタスクも通知対象に含める(夜の通知で完了分も見たいため)
+function buildFilter(today) {
+  const gtdExclusions = EXCLUDED_GTD_TYPES.map((name) => ({
+    property: GTD_TYPE_PROPERTY,
+    status: { does_not_equal: name },
+  }));
+
+  return {
+    or: [
+      {
+        and: [
+          { property: STATUS_PROPERTY, status: { does_not_equal: "Done" } },
+          { property: DATE_PROPERTY, date: { on_or_before: today } },
+          ...gtdExclusions,
+        ],
+      },
+      {
+        and: [
+          { property: STATUS_PROPERTY, status: { equals: "Done" } },
+          { property: DATE_PROPERTY, date: { equals: today } },
+          ...gtdExclusions,
+        ],
+      },
+    ],
+  };
+}
+
 async function fetchTargetTasks(today) {
   const res = await fetch(
     `https://api.notion.com/v1/data_sources/${NOTION_DATA_SOURCE_ID}/query`,
@@ -41,16 +68,7 @@ async function fetchTargetTasks(today) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        filter: {
-          and: [
-            { property: STATUS_PROPERTY, status: { does_not_equal: "Done" } },
-            { property: DATE_PROPERTY, date: { on_or_before: today } },
-            ...EXCLUDED_GTD_TYPES.map((name) => ({
-              property: GTD_TYPE_PROPERTY,
-              status: { does_not_equal: name },
-            })),
-          ],
-        },
+        filter: buildFilter(today),
         sorts: [{ property: DATE_PROPERTY, direction: "ascending" }],
       }),
     },
@@ -78,23 +96,27 @@ function extractStatus(page) {
   return page.properties[STATUS_PROPERTY]?.status?.name;
 }
 
-// 実行日が今日より前（期限切れ）/ 今日（ステータスごと）に分類する
+// 実行日が今日より前（期限切れ）/ 今日（ステータスごと、完了含む）に分類する
 function groupTasks(tasks, today) {
   const overdue = [];
   const todayToDo = [];
   const todayInProgress = [];
+  const todayDone = [];
 
   for (const page of tasks) {
-    if (extractDate(page) < today) {
+    const status = extractStatus(page);
+    if (status === "Done") {
+      todayDone.push(page);
+    } else if (extractDate(page) < today) {
       overdue.push(page);
-    } else if (extractStatus(page) === "InProgress") {
+    } else if (status === "InProgress") {
       todayInProgress.push(page);
     } else {
       todayToDo.push(page);
     }
   }
 
-  return { overdue, todayToDo, todayInProgress };
+  return { overdue, todayToDo, todayInProgress, todayDone };
 }
 
 function bulletLines(tasks) {
@@ -109,9 +131,9 @@ function divider() {
   return { type: "divider" };
 }
 
-function buildSlackMessage({ overdue, todayToDo, todayInProgress }) {
-  const todayCount = todayToDo.length + todayInProgress.length;
-  const hasToday = todayCount > 0;
+function buildSlackMessage({ overdue, todayToDo, todayInProgress, todayDone }) {
+  const todayPendingCount = todayToDo.length + todayInProgress.length;
+  const hasTodayPending = todayPendingCount > 0;
 
   const blocks = [
     { type: "header", text: { type: "plain_text", text: `📅 ${todayLabelJst()} のタスク` } },
@@ -120,7 +142,7 @@ function buildSlackMessage({ overdue, todayToDo, todayInProgress }) {
       elements: [
         {
           type: "mrkdwn",
-          text: `🚨 やり残し *${overdue.length}件*　・　📋 今日 *${todayCount}件*`,
+          text: `🚨 やり残し *${overdue.length}件*　・　📋 今日 *${todayPendingCount}件*　・　✅ 完了 *${todayDone.length}件*`,
         },
       ],
     },
@@ -129,7 +151,7 @@ function buildSlackMessage({ overdue, todayToDo, todayInProgress }) {
 
   if (overdue.length > 0) {
     blocks.push(section(`🚨 *やり残し（期限切れ）*\n${bulletLines(overdue)}`));
-    if (hasToday) blocks.push(divider());
+    if (hasTodayPending || todayDone.length > 0) blocks.push(divider());
   }
 
   if (todayToDo.length > 0) {
@@ -139,7 +161,12 @@ function buildSlackMessage({ overdue, todayToDo, todayInProgress }) {
     blocks.push(section(`▶️ *進行中* (${todayInProgress.length}件)\n${bulletLines(todayInProgress)}`));
   }
 
-  const text = `やり残し ${overdue.length}件 / 今日 ${todayCount}件`;
+  if (todayDone.length > 0) {
+    if (hasTodayPending) blocks.push(divider());
+    blocks.push(section(`✅ *完了* (${todayDone.length}件)\n${bulletLines(todayDone)}`));
+  }
+
+  const text = `やり残し ${overdue.length}件 / 今日 ${todayPendingCount}件 / 完了 ${todayDone.length}件`;
   return { text, blocks };
 }
 
