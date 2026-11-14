@@ -1,0 +1,22 @@
+name: Notion Todo を Slack に通知
+
+on:
+  schedule:
+    # 9:07 / 20:07 JST（0分ちょうどは実行が遅延しやすいため避けている）
+    - cron: "7 9,20 * * *"
+      timezone: "Asia/Tokyo"
+  workflow_dispatch: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node src/todo-slack-notify/index.mjs
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATA_SOURCE_ID: ${{ secrets.NOTION_DATA_SOURCE_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
