@@ -54,9 +54,65 @@ function extractTitle(page) {
   return text || "(無題)";
 }
 
-function buildSlackMessage(tasks) {
-  const lines = tasks.map((page) => `• <${page.url}|${extractTitle(page)}>`);
-  return { text: lines.join("\n") };
+function extractDate(page) {
+  return page.properties[DATE_PROPERTY]?.date?.start?.slice(0, 10);
+}
+
+function extractStatus(page) {
+  return page.properties[STATUS_PROPERTY]?.status?.name;
+}
+
+// 実行日が今日より前（期限切れ）/ 今日（ステータスごと）に分類する
+function groupTasks(tasks, today) {
+  const overdue = [];
+  const todayToDo = [];
+  const todayInProgress = [];
+
+  for (const page of tasks) {
+    if (extractDate(page) < today) {
+      overdue.push(page);
+    } else if (extractStatus(page) === "InProgress") {
+      todayInProgress.push(page);
+    } else {
+      todayToDo.push(page);
+    }
+  }
+
+  return { overdue, todayToDo, todayInProgress };
+}
+
+function bulletLines(tasks) {
+  return tasks.map((page) => `• <${page.url}|${extractTitle(page)}>`).join("\n");
+}
+
+function section(text) {
+  return { type: "section", text: { type: "mrkdwn", text } };
+}
+
+function buildSlackMessage({ overdue, todayToDo, todayInProgress }) {
+  const blocks = [];
+  const hasToday = todayToDo.length > 0 || todayInProgress.length > 0;
+
+  if (overdue.length > 0) {
+    blocks.push(section(`🚨 *やり残し（期限切れ）*\n${bulletLines(overdue)}`));
+  }
+
+  if (overdue.length > 0 && hasToday) {
+    blocks.push({ type: "divider" });
+  }
+
+  if (hasToday) {
+    blocks.push(section("📋 *今日のタスク*"));
+    if (todayInProgress.length > 0) {
+      blocks.push(section(`▶️ *進行中*\n${bulletLines(todayInProgress)}`));
+    }
+    if (todayToDo.length > 0) {
+      blocks.push(section(`⬜ *未着手*\n${bulletLines(todayToDo)}`));
+    }
+  }
+
+  const text = `やり残し ${overdue.length}件 / 今日 ${todayToDo.length + todayInProgress.length}件`;
+  return { text, blocks };
 }
 
 async function postToSlack(message) {
@@ -80,7 +136,8 @@ async function main() {
     return;
   }
 
-  await postToSlack(buildSlackMessage(tasks));
+  const grouped = groupTasks(tasks, today);
+  await postToSlack(buildSlackMessage(grouped));
   console.log(`${tasks.length}件のタスクをSlackに通知しました。`);
 }
 
