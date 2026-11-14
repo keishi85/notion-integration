@@ -21,6 +21,15 @@ function todayInJst() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Tokyo" });
 }
 
+function todayLabelJst() {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(new Date());
+}
+
 async function fetchTargetTasks(today) {
   const res = await fetch(
     `https://api.notion.com/v1/data_sources/${NOTION_DATA_SOURCE_ID}/query`,
@@ -96,29 +105,41 @@ function section(text) {
   return { type: "section", text: { type: "mrkdwn", text } };
 }
 
+function divider() {
+  return { type: "divider" };
+}
+
 function buildSlackMessage({ overdue, todayToDo, todayInProgress }) {
-  const blocks = [];
-  const hasToday = todayToDo.length > 0 || todayInProgress.length > 0;
+  const todayCount = todayToDo.length + todayInProgress.length;
+  const hasToday = todayCount > 0;
+
+  const blocks = [
+    { type: "header", text: { type: "plain_text", text: `📅 ${todayLabelJst()} のタスク` } },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `🚨 やり残し *${overdue.length}件*　・　📋 今日 *${todayCount}件*`,
+        },
+      ],
+    },
+    divider(),
+  ];
 
   if (overdue.length > 0) {
     blocks.push(section(`🚨 *やり残し（期限切れ）*\n${bulletLines(overdue)}`));
+    if (hasToday) blocks.push(divider());
   }
 
-  if (overdue.length > 0 && hasToday) {
-    blocks.push({ type: "divider" });
+  if (todayToDo.length > 0) {
+    blocks.push(section(`⬜ *未着手* (${todayToDo.length}件)\n${bulletLines(todayToDo)}`));
+  }
+  if (todayInProgress.length > 0) {
+    blocks.push(section(`▶️ *進行中* (${todayInProgress.length}件)\n${bulletLines(todayInProgress)}`));
   }
 
-  if (hasToday) {
-    blocks.push(section("📋 *今日のタスク*"));
-    if (todayInProgress.length > 0) {
-      blocks.push(section(`▶️ *進行中*\n${bulletLines(todayInProgress)}`));
-    }
-    if (todayToDo.length > 0) {
-      blocks.push(section(`⬜ *未着手*\n${bulletLines(todayToDo)}`));
-    }
-  }
-
-  const text = `やり残し ${overdue.length}件 / 今日 ${todayToDo.length + todayInProgress.length}件`;
+  const text = `やり残し ${overdue.length}件 / 今日 ${todayCount}件`;
   return { text, blocks };
 }
 
