@@ -12,6 +12,9 @@ const NOTION_VERSION = "2026-03-11";
 const STATUS_PROPERTY = "ステータス";
 const DATE_PROPERTY = "実行日";
 const TITLE_PROPERTY = "タイトル";
+const GTD_TYPE_PROPERTY = "GTD 種別";
+// 「いつかやる・たぶんやる」「ゴミ箱」は今日やるべきタスクではないため通知対象から除外する
+const EXCLUDED_GTD_TYPES = ["💫 いつかやる・たぶんやる", "🗑 ゴミ箱"];
 
 function todayInJst() {
   // "en-CA" ロケールは YYYY-MM-DD 形式で返す
@@ -33,6 +36,10 @@ async function fetchTargetTasks(today) {
           and: [
             { property: STATUS_PROPERTY, status: { does_not_equal: "Done" } },
             { property: DATE_PROPERTY, date: { on_or_before: today } },
+            ...EXCLUDED_GTD_TYPES.map((name) => ({
+              property: GTD_TYPE_PROPERTY,
+              status: { does_not_equal: name },
+            })),
           ],
         },
         sorts: [{ property: DATE_PROPERTY, direction: "ascending" }],
