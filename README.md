@@ -39,3 +39,15 @@ cp .env.example .env
 # .env に値を記入してから
 export $(grep -v '^#' .env | xargs) && node src/todo-slack-notify/index.mjs
 ```
+
+### GAS 版（時刻どおりに通知したい場合）
+
+GitHub Actions の `schedule` は数時間遅れることがあるため、Google Apps Script 版を `src/todo-slack-notify-gas/` に用意している。
+
+1. https://script.google.com で新規プロジェクトを作成
+2. `Code.gs` の内容を貼り付ける。「プロジェクトの設定」→「appsscript.json マニフェストファイルをエディタで表示」をオンにして、`appsscript.json` の `timeZone` を `Asia/Tokyo` にする
+3. 「プロジェクトの設定」→ スクリプト プロパティに `NOTION_API_KEY` / `NOTION_DATA_SOURCE_ID` / `SLACK_WEBHOOK_URL` を登録
+4. `notifyTodos` を手動実行して権限を承認し、Slack に届くことを確認
+5. `setupTriggers` を一度実行 → 毎日 9時台 / 20時台に自動実行される
+6. 二重通知を避けるため、動作確認後に `.github/workflows/todo-slack-notify.yml` の `schedule` を削除する
+
